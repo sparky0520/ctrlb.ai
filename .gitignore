@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# Tooling and editor state
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated transcription/render artifacts
+audio.mp3
+transcript.json
+output.mp4
+
+# Large local media inputs
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# OS files
+Thumbs.db
+.DS_Store

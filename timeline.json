@@ -1,0 +1,13 @@
+{
+  "current_version": 1,
+  "video_source": "Ambition.mp4",
+  "history": [
+    {
+      "version": 1,
+      "commit_message": "Original video imported",
+      "cuts": [],
+      "zooms": [],
+      "titles": []
+    }
+  ]
+}
