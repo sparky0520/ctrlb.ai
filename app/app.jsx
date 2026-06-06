@@ -2,8 +2,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   INITIAL, INTENTS, deepClone, round, uid,
-  serialize, diffLines, diffWindow, matchIntent,
+  serialize, diffLines, diffWindow,
 } from './state.jsx';
+import { callAgent } from './llm.js';
 import {
   useTweaks, TweaksPanel, TweakSection, TweakColor, TweakRadio, TweakToggle,
 } from './tweaks-panel.jsx';
@@ -146,25 +147,24 @@ export default function App() {
   };
   const rejectMsg = (msg) => setMessages((ms) => ms.map((m) => m.id === msg.id ? { ...m, status: "rejected" } : m));
 
-  const onSend = (text) => {
+  const onSend = async (text) => {
     pushMsg({ role: "user", text });
     setThinking(true);
-    setTimeout(() => {
+    try {
+      const result = await callAgent(text, stateRef.current);
       setThinking(false);
-      const intent = matchIntent(text);
-      if (!intent) {
-        pushMsg({ role: "ai", text: "I can split, trim, zoom, change speed, adjust volume, add text or solid-color cards, transitions, match the voiceover, or generate a thumbnail. Try one of the suggestions below." });
+
+      if (!result.items) {
+        pushMsg({ role: "ai", text: result.reply });
         return;
       }
-      if (intent.special === "thumbnail") {
-        pushMsg({ role: "ai", text: intent.reply(), action: <button className="btn tiny primary" onClick={() => setModal("thumb")}>Open thumbnail panel</button> });
-        setTimeout(() => setModal("thumb"), 250);
-        return;
-      }
+
       const before = stateRef.current;
-      const after = intent.patch(before);
+      const after = normalize({ ...before, items: result.items });
       const ops = diffWindow(diffLines(serialize(before), serialize(after)));
-      const msg = { role: "ai", text: intent.reply(), loc: intent.loc, diff: ops, patchFn: intent.patch, status: "pending" };
+      const patchFn = () => ({ ...stateRef.current, items: result.items });
+      const msg = { role: "ai", text: result.reply, loc: result.loc, diff: ops, patchFn, status: "pending" };
+
       if (t.autoApply) {
         const id = uid("m");
         setMessages((ms) => [...ms, { id, ...msg, status: "applied" }]);
@@ -173,7 +173,10 @@ export default function App() {
       } else {
         pushMsg(msg);
       }
-    }, 650 + Math.random() * 400);
+    } catch (err) {
+      setThinking(false);
+      pushMsg({ role: "ai", text: `Something went wrong: ${err.message}` });
+    }
   };
 
   // ---- direct edit handlers

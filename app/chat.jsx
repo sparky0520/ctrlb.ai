@@ -61,7 +61,7 @@ export function Chat({ messages, onSend, onApply, onReject, thinking }) {
         <span className="ph-title"><Spark/> Agent</span>
         <span className="ph-sub">edits config.json · ⌘K</span>
         <div className="ph-spacer"/>
-        <span className="model">claude · video</span>
+        <span className="model">gpt-4o-mini · video</span>
       </div>
 
       <div className="ch-scroll" ref={scrollRef}>
