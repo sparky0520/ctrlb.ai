@@ -1,7 +1,7 @@
 // app.jsx — wires the whole IDE: state, history, playback, AI flow, modals, tweaks.
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  INITIAL, INTENTS, deepClone, round, uid,
+  INITIAL, deepClone, round, uid,
   serialize, diffLines, diffWindow,
 } from './state.jsx';
 import { callAgent } from './llm.js';
@@ -232,15 +232,7 @@ export default function App() {
       {modal === "render" && <RenderModal state={state} onClose={() => setModal(null)}/>}
       {modal === "thumb" && <ThumbModal onClose={() => setModal(null)} onPick={() => setModal(null)}/>}
       {modal === "voice" && <VoiceModal state={state} onClose={() => setModal(null)}
-        onMatch={() => {
-          const it = INTENTS.find((x) => x.id === "voice");
-          const before = stateRef.current;
-          const after = normalize(it.patch(before));
-          setState(after, { history: true });
-          flashChanges(before, after);
-          setModal(null);
-          pushMsg({ role: "ai", text: it.reply(), loc: it.loc });
-        }}/>}
+        onMatch={() => { setModal(null); onSend("Match the voiceover to the cuts"); }}/>}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Theme"/>
