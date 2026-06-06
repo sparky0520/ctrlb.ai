@@ -1,8 +1,9 @@
 // codesheet.jsx — config.json as a draggable bottom sheet in the right column.
-const { useRef: csUseRef } = React;
+import { useRef } from 'react';
+import { clamp, highlightLine } from './state.jsx';
 
-function CodeSheet({ code, height, setHeight, maxH, flash }) {
-  const startRef = csUseRef(null);
+export function CodeSheet({ code, height, setHeight, maxH, flash }) {
+  const startRef = useRef(null);
   const lines = code.split("\n");
   const open = height > 60;
 
@@ -43,5 +44,3 @@ function CodeSheet({ code, height, setHeight, maxH, flash }) {
     </div>
   );
 }
-
-Object.assign(window, { CodeSheet });

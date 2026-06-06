@@ -1,11 +1,12 @@
 // chat.jsx — AI-primary panel. Messages + inline diff cards (apply / reject) + input.
-const { useState: chUseState, useEffect: chUseEffect, useRef: chUseRef } = React;
+import { useState, useEffect, useRef } from 'react';
+import { highlightLine } from './state.jsx';
 
-function Spark({ s = 12 }) {
+export function Spark({ s = 12 }) {
   return <svg width={s} height={s} viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0.6 L7.1 4.9 L11.4 6 L7.1 7.1 L6 11.4 L4.9 7.1 L0.6 6 L4.9 4.9 Z" fill="currentColor"/></svg>;
 }
 
-function DiffCard({ msg, onApply, onReject }) {
+export function DiffCard({ msg, onApply, onReject }) {
   const ops = msg.diff || [];
   return (
     <div className={"diffcard " + msg.status}>
@@ -44,10 +45,10 @@ const STARTERS = [
   "Generate a thumbnail",
 ];
 
-function Chat({ messages, onSend, onApply, onReject, thinking }) {
-  const [text, setText] = chUseState("");
-  const scrollRef = chUseRef(null);
-  chUseEffect(() => {
+export function Chat({ messages, onSend, onApply, onReject, thinking }) {
+  const [text, setText] = useState("");
+  const scrollRef = useRef(null);
+  useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, thinking]);
@@ -66,7 +67,7 @@ function Chat({ messages, onSend, onApply, onReject, thinking }) {
       <div className="ch-scroll" ref={scrollRef}>
         <div className="ch-intro">
           <div className="intro-mark"><Spark s={15}/></div>
-          <div className="intro-h">Describe the edit, I’ll change the config</div>
+          <div className="intro-h">Describe the edit, I'll change the config</div>
           <div className="intro-p">You never touch the preview directly — I propose edits to <code>config.json</code> and the video re-renders from it.</div>
         </div>
 
@@ -105,5 +106,3 @@ function Chat({ messages, onSend, onApply, onReject, thinking }) {
     </div>
   );
 }
-
-Object.assign(window, { Chat, DiffCard, Spark });

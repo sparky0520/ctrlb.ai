@@ -87,7 +87,7 @@ Respect `prefers-reduced-motion` in production.
 
 ## Design Tokens
 
-Source of truth: `:root` in `AI Video IDE.html`.
+Source of truth: `:root` in `index.html`.
 
 ### Color
 

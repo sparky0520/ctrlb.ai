@@ -1,5 +1,7 @@
 // modals.jsx — top bar + Render, Thumbnail generator, and Voiceover modals.
-const { useState: mUseState, useEffect: mUseEffect } = React;
+import { useState, useEffect } from 'react';
+import { fmtTime } from './state.jsx';
+import { Spark } from './chat.jsx';
 
 function Mark({ s = 17 }) {
   return <svg width={s} height={s} viewBox="0 0 16 16" aria-hidden="true">
@@ -7,7 +9,7 @@ function Mark({ s = 17 }) {
     <path d="M6 5 L11 8 L6 11 Z" fill="currentColor"/></svg>;
 }
 
-function TopBar({ meta, dur, dirty, onRender, onThumb, onVoice, canUndo, onUndo }) {
+export function TopBar({ meta, dur, dirty, onRender, onThumb, onVoice, canUndo, onUndo }) {
   return (
     <div className="topbar">
       <div className="tb-grp">
@@ -47,12 +49,12 @@ const RENDER_STAGES = [
   { k: "FFmpeg · encoding H.264 + AAC", d: 1300 },
   { k: "Muxing voiceover + music bed", d: 700 },
 ];
-function RenderModal({ state, onClose }) {
-  const [stage, setStage] = mUseState(0);
-  const [prog, setProg] = mUseState(0);
-  const [done, setDone] = mUseState(false);
-  mUseEffect(() => {
-    let s = 0, raf, t0 = performance.now();
+export function RenderModal({ state, onClose }) {
+  const [stage, setStage] = useState(0);
+  const [prog, setProg] = useState(0);
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    let raf, t0 = performance.now();
     const total = RENDER_STAGES.reduce((a, b) => a + b.d, 0);
     const tick = (now) => {
       const el = now - t0;
@@ -101,8 +103,8 @@ const THUMBS = [
   { id: 1, cap: "We rebuilt\nour workflow", pos: "center", accent: "#1f8a5b", frame: "00:21" },
   { id: 2, cap: "From 30 min\n→ 30 sec", pos: "br", accent: "#e0a93d", frame: "00:27" },
 ];
-function ThumbModal({ onClose, onPick }) {
-  const [sel, setSel] = mUseState(0);
+export function ThumbModal({ onClose, onPick }) {
+  const [sel, setSel] = useState(0);
   return (
     <Modal onClose={onClose} wide>
       <div className="md-head"><span className="md-title"><Spark s={13}/> Thumbnail generator</span><button className="md-x" onClick={onClose}>✕</button></div>
@@ -125,7 +127,7 @@ function ThumbModal({ onClose, onPick }) {
 }
 
 // ---- Voiceover --------------------------------------------------------------
-function VoiceModal({ state, onClose, onMatch }) {
+export function VoiceModal({ state, onClose, onMatch }) {
   const voice = state.items.find((i) => i.type === "voice");
   const dur = state.meta.duration;
   const cuts = [6, 12.5, 19, 24, 30.5];
@@ -152,5 +154,3 @@ function VoiceModal({ state, onClose, onMatch }) {
     </Modal>
   );
 }
-
-Object.assign(window, { TopBar, RenderModal, ThumbModal, VoiceModal, Modal, Mark });

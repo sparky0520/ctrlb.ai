@@ -1,5 +1,17 @@
 // app.jsx — wires the whole IDE: state, history, playback, AI flow, modals, tweaks.
-const { useState: aUseState, useEffect: aUseEffect, useRef: aUseRef, useMemo: aUseMemo } = React;
+import { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  INITIAL, INTENTS, deepClone, round, uid,
+  serialize, diffLines, diffWindow, matchIntent,
+} from './state.jsx';
+import {
+  useTweaks, TweaksPanel, TweakSection, TweakColor, TweakRadio, TweakToggle,
+} from './tweaks-panel.jsx';
+import { Preview, Transport } from './preview.jsx';
+import { Timeline, Inspector } from './timeline.jsx';
+import { Chat } from './chat.jsx';
+import { CodeSheet } from './codesheet.jsx';
+import { TopBar, RenderModal, ThumbModal, VoiceModal } from './modals.jsx';
 
 function normalize(s) {
   const n = deepClone(s);
@@ -8,7 +20,6 @@ function normalize(s) {
   return n;
 }
 
-// asset rail (from layout C, toggled by a tweak)
 function Rail({ state, selId, onSelect }) {
   const groups = [
     { h: "Clips", types: ["video"] },
@@ -41,21 +52,21 @@ function Rail({ state, selId, onSelect }) {
   );
 }
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accent": "#3d7eff",
-  "density": "comfortable",
-  "showRail": false,
-  "autoApply": false
-}/*EDITMODE-END*/;
+const TWEAK_DEFAULTS = {
+  accent: "#3d7eff",
+  density: "comfortable",
+  showRail: false,
+  autoApply: false,
+};
 
-function App() {
+export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
-  const [state, setStateRaw] = aUseState(() => normalize(INITIAL));
-  const stateRef = aUseRef(state);
-  aUseEffect(() => { stateRef.current = state; }, [state]);
-  const histRef = aUseRef([]);
-  const [canUndo, setCanUndo] = aUseState(false);
+  const [state, setStateRaw] = useState(() => normalize(INITIAL));
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+  const histRef = useRef([]);
+  const [canUndo, setCanUndo] = useState(false);
 
   const setState = (next, { history = false } = {}) => {
     if (history) { histRef.current.push(deepClone(stateRef.current)); setCanUndo(true); }
@@ -67,27 +78,26 @@ function App() {
   };
 
   const dur = state.meta.duration;
-  const [time, setTime] = aUseState(() => parseFloat(localStorage.getItem("ide.time") || "2") || 2);
-  const [playing, setPlaying] = aUseState(false);
-  const [selId, setSelId] = aUseState(null);
-  const [messages, setMessages] = aUseState([]);
-  const [thinking, setThinking] = aUseState(false);
-  const [modal, setModal] = aUseState(null);
-  const [flash, setFlash] = aUseState(new Set());
+  const [time, setTime] = useState(() => parseFloat(localStorage.getItem("ide.time") || "2") || 2);
+  const [playing, setPlaying] = useState(false);
+  const [selId, setSelId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [thinking, setThinking] = useState(false);
+  const [modal, setModal] = useState(null);
+  const [flash, setFlash] = useState(new Set());
 
-  // code sheet height
-  const rightRef = aUseRef(null);
-  const [maxH, setMaxH] = aUseState(420);
-  const [sheetH, setSheetH] = aUseState(38);
-  aUseEffect(() => {
+  const rightRef = useRef(null);
+  const [maxH, setMaxH] = useState(420);
+  const [sheetH, setSheetH] = useState(38);
+  useEffect(() => {
     const upd = () => { if (rightRef.current) setMaxH(Math.max(180, rightRef.current.clientHeight - 96)); };
     upd(); window.addEventListener("resize", upd); return () => window.removeEventListener("resize", upd);
   }, []);
 
-  const code = aUseMemo(() => serialize(state), [state]);
+  const code = useMemo(() => serialize(state), [state]);
 
   // ---- playback loop
-  aUseEffect(() => {
+  useEffect(() => {
     if (!playing) return;
     let raf, last = performance.now();
     const tick = (now) => {
@@ -102,10 +112,10 @@ function App() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing, dur]);
-  aUseEffect(() => { localStorage.setItem("ide.time", String(time)); }, [time]);
+  useEffect(() => { localStorage.setItem("ide.time", String(time)); }, [time]);
 
   // ---- keyboard: space toggles play
-  aUseEffect(() => {
+  useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea") return;
@@ -174,7 +184,6 @@ function App() {
     setState((s) => {
       const idx = s.items.findIndex((x) => x.id === it.id);
       const left = { ...it, end: at };
-      const mid = (it.trim[0] + (at - it.start)) ;
       left.trim = [it.trim[0], it.trim[0] + (at - it.start) * it.speed];
       const right = { ...it, id: uid("v"), start: at, trim: [left.trim[1], it.trim[1]], label: it.label };
       const items = [...s.items]; items.splice(idx, 1, left, right);
@@ -218,9 +227,17 @@ function App() {
       </div>
 
       {modal === "render" && <RenderModal state={state} onClose={() => setModal(null)}/>}
-      {modal === "thumb" && <ThumbModal onClose={() => setModal(null)} onPick={() => { setModal(null); }}/>}
+      {modal === "thumb" && <ThumbModal onClose={() => setModal(null)} onPick={() => setModal(null)}/>}
       {modal === "voice" && <VoiceModal state={state} onClose={() => setModal(null)}
-        onMatch={() => { const it = INTENTS.find((x) => x.id === "voice"); const before = stateRef.current; const after = normalize(it.patch(before)); setState(after, { history: true }); flashChanges(before, after); setModal(null); pushMsg({ role: "ai", text: it.reply(), loc: it.loc }); }}/>}
+        onMatch={() => {
+          const it = INTENTS.find((x) => x.id === "voice");
+          const before = stateRef.current;
+          const after = normalize(it.patch(before));
+          setState(after, { history: true });
+          flashChanges(before, after);
+          setModal(null);
+          pushMsg({ role: "ai", text: it.reply(), loc: it.loc });
+        }}/>}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Theme"/>
@@ -236,5 +253,3 @@ function App() {
     </div>
   );
 }
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

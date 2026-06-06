@@ -2,7 +2,7 @@
 // Single source of truth: everything (preview, timeline, code) derives from `state`.
 
 // ---------------------------------------------------------------- initial state
-const INITIAL = {
+export const INITIAL = {
   meta: { composition: "ProductDemo", fps: 30, size: [1920, 1080], duration: 34 },
   items: [
     { id: "v1", type: "video", track: "screen", label: "screen-recording.mp4",
@@ -18,24 +18,24 @@ const INITIAL = {
   ],
 };
 
-const TRACK_ORDER = ["screen", "zoom", "text", "voice", "music"];
-const TRACK_LABEL = { screen: "Screen", zoom: "Zoom", text: "Text", voice: "Voice", music: "Music" };
+export const TRACK_ORDER = ["screen", "zoom", "text", "voice", "music"];
+export const TRACK_LABEL = { screen: "Screen", zoom: "Zoom", text: "Text", voice: "Voice", music: "Music" };
 
 // ---------------------------------------------------------------- helpers
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const round = (v, d = 2) => { const m = 10 ** d; return Math.round(v * m) / m; };
-const uid = (p) => p + Math.random().toString(36).slice(2, 6);
-const fmtTime = (s) => {
+export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+export const round = (v, d = 2) => { const m = 10 ** d; return Math.round(v * m) / m; };
+export const uid = (p) => p + Math.random().toString(36).slice(2, 6);
+export const fmtTime = (s) => {
   s = Math.max(0, s);
   const m = Math.floor(s / 60), sec = Math.floor(s % 60);
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 };
-const deepClone = (s) => JSON.parse(JSON.stringify(s));
+export const deepClone = (s) => JSON.parse(JSON.stringify(s));
 
 // ---------------------------------------------------------------- serializer
 // Builds the Remotion-style config object with deterministic key order, then
 // pretty-prints it. Clean key order => clean diffs.
-function buildConfig(state) {
+export function buildConfig(state) {
   const order = { video: 0, color: 1, zoom: 2, text: 3, transition: 4 };
   const clips = state.items
     .filter((i) => ["video", "color", "zoom", "text", "transition"].includes(i.type))
@@ -62,11 +62,11 @@ function buildConfig(state) {
     audio: audio.map(audObj),
   };
 }
-const serialize = (state) => JSON.stringify(buildConfig(state), null, 2);
+export const serialize = (state) => JSON.stringify(buildConfig(state), null, 2);
 
 // ---------------------------------------------------------------- JSON highlight
 const HL_RE = /("(?:[^"\\]|\\.)*")(\s*:)|("(?:[^"\\]|\\.)*")|(-?\d+(?:\.\d+)?)|(true|false|null)|([{}\[\],:])/g;
-function highlightLine(line) {
+export function highlightLine(line) {
   const out = []; let last = 0, m, i = 0;
   while ((m = HL_RE.exec(line))) {
     if (m.index > last) out.push(<span key={i++}>{line.slice(last, m.index)}</span>);
@@ -82,7 +82,7 @@ function highlightLine(line) {
 }
 
 // ---------------------------------------------------------------- line diff (LCS)
-function diffLines(aStr, bStr) {
+export function diffLines(aStr, bStr) {
   const a = aStr.split("\n"), b = bStr.split("\n");
   const n = a.length, m = b.length;
   const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
@@ -100,7 +100,7 @@ function diffLines(aStr, bStr) {
   return ops;
 }
 // Trim a diff to a compact window around the changed hunks (for diff cards).
-function diffWindow(ops, pad = 2) {
+export function diffWindow(ops, pad = 2) {
   const changed = ops.map((o, i) => (o.t !== "ctx" ? i : -1)).filter((i) => i >= 0);
   if (!changed.length) return [];
   const lo = Math.max(0, changed[0] - pad), hi = Math.min(ops.length - 1, changed[changed.length - 1] + pad);
@@ -111,12 +111,12 @@ function diffWindow(ops, pad = 2) {
 // Each intent: keyword test, a friendly reply, and a `patch(state) -> newState`.
 // The diff card is computed from serialize(before) vs serialize(after), so the
 // proposed change is always exactly what gets applied.
-const INTENTS = [
+export const INTENTS = [
   {
     id: "trim",
     chip: "Trim the dead air at the start",
     test: /(trim|dead air|cut.*(start|begin|intro)|tighten the (start|intro))/i,
-    reply: () => "Trimmed the silent intro — moved the screen clip’s in-point to 6.0s so it starts on the first click. Tightened the whole timeline by ~2s.",
+    reply: () => "Trimmed the silent intro — moved the screen clip's in-point to 6.0s so it starts on the first click. Tightened the whole timeline by ~2s.",
     loc: "clips[0] · video",
     patch: (s) => {
       const n = deepClone(s);
@@ -129,7 +129,7 @@ const INTENTS = [
     id: "title",
     chip: "Add an intro title card",
     test: /(title|add.*text|intro card|headline|caption)/i,
-    reply: () => "Added a title card reading “Ship faster with Acme” for the first 3 seconds using the title-card preset.",
+    reply: () => 'Added a title card reading “Ship faster with Acme” for the first 3 seconds using the title-card preset.',
     loc: "clips · text",
     patch: (s) => {
       const n = deepClone(s);
@@ -163,7 +163,7 @@ const INTENTS = [
     id: "outro",
     chip: "Add a solid-color outro card",
     test: /(outro|color (card|screen)|solid|end card|cta card)/i,
-    reply: () => "Added a solid indigo outro card from 31–34s with a “Start your free trial” call-to-action.",
+    reply: () => 'Added a solid indigo outro card from 31–34s with a "Start your free trial" call-to-action.',
     loc: "clips · color",
     patch: (s) => {
       const n = deepClone(s);
@@ -213,12 +213,6 @@ const INTENTS = [
   },
 ];
 
-function matchIntent(text) {
+export function matchIntent(text) {
   return INTENTS.find((it) => it.test.test(text)) || null;
 }
-
-Object.assign(window, {
-  INITIAL, TRACK_ORDER, TRACK_LABEL, INTENTS,
-  clamp, round, uid, fmtTime, deepClone,
-  serialize, buildConfig, highlightLine, diffLines, diffWindow, matchIntent,
-});

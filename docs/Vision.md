@@ -36,7 +36,7 @@ The preview renders an **abstract dashboard placeholder**, not a real video fram
 
 ## Fidelity
 
-**High-fidelity.** Final colors, typography, spacing, layout, motion, and interaction patterns are all intended as shown. Recreate the UI faithfully using the codebase's libraries. Exact tokens are in [Design.md](Design.md); the canonical source is the `<style>` block in `AI Video IDE.html`.
+**High-fidelity.** Final colors, typography, spacing, layout, motion, and interaction patterns are all intended as shown. Recreate the UI faithfully using the codebase's libraries. Exact tokens are in [Design.md](Design.md); the canonical source is the `<style>` block in `index.html`.
 
 ---
 

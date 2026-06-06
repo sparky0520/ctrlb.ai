@@ -1,11 +1,12 @@
 // timeline.jsx — tracks derived from state, scrub playhead, select + inspect clips.
-const { useRef: tlUseRef } = React;
+import { useRef } from 'react';
+import { clamp, fmtTime, TRACK_ORDER, TRACK_LABEL } from './state.jsx';
 
 const SEG_CLASS = { video: "vid", zoom: "zoom", text: "text", color: "text", transition: "zoom", voice: "voice", music: "music" };
 
-function Timeline({ state, time, dur, selId, onSeek, onSelect, zoomPx }) {
-  const laneRef = tlUseRef(null);
-  const pps = zoomPx; // px per second
+export function Timeline({ state, time, dur, selId, onSeek, onSelect, zoomPx }) {
+  const laneRef = useRef(null);
+  const pps = zoomPx;
   const W = dur * pps;
 
   const seekTo = (clientX) => {
@@ -65,8 +66,7 @@ function Timeline({ state, time, dur, selId, onSeek, onSelect, zoomPx }) {
   );
 }
 
-// ---- inspector: direct editing for the selected clip -----------------------
-function Inspector({ item, dur, onChange, onSplit, onDelete, onClose, playhead }) {
+export function Inspector({ item, dur, onChange, onSplit, onDelete, onClose, playhead }) {
   if (!item) return null;
   const set = (patch) => onChange({ ...item, ...patch });
   const Field = ({ label, children }) => (
@@ -162,5 +162,3 @@ function Inspector({ item, dur, onChange, onSplit, onDelete, onClose, playhead }
     </div>
   );
 }
-
-Object.assign(window, { Timeline, Inspector });

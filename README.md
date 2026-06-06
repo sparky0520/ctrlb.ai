@@ -27,7 +27,7 @@ The preview renders an **abstract dashboard placeholder**, not a real video fram
 
 ## Fidelity
 
-**High-fidelity (hifi).** Final colors, typography, spacing, layout, motion, and interaction patterns are all intended as shown. Recreate the UI faithfully using the codebase's libraries. Exact tokens are listed below; the source of truth is the `<style>` block in `AI Video IDE.html`.
+**High-fidelity (hifi).** Final colors, typography, spacing, layout, motion, and interaction patterns are all intended as shown. Recreate the UI faithfully using the codebase's libraries. Exact tokens are listed below; the source of truth is the `<style>` block in `index.html`.
 
 ---
 
@@ -179,7 +179,7 @@ State owned by `<App>` (lift to Zustand/Redux/context in production):
 
 ## Design Tokens
 
-Source of truth: `:root` in `AI Video IDE.html`.
+Source of truth: `:root` in `index.html`.
 
 ### Color
 | Token | Hex | Use |
@@ -235,10 +235,10 @@ TopBar 42 · Transport 40 · Timeline 236/208 · track gutter 74px · row 26px �
 ---
 
 ## Files in this bundle
-- `AI Video IDE.html` — the prototype shell (all CSS in `<style>`; the source of truth for tokens). Loads the `app/*.jsx` files.
+- `index.html` — the prototype shell (all CSS in `<style>`; the source of truth for tokens). Loads the `app/*.jsx` files.
 - `app/state.jsx` · `app/preview.jsx` · `app/timeline.jsx` · `app/chat.jsx` · `app/codesheet.jsx` · `app/modals.jsx` · `app/app.jsx` — the component logic (see Architecture table).
 - `app/tweaks-panel.jsx` — prototype tweak panel; **not part of the product**, drop it.
 - `reference/Layout Explorations.html` (+ `ide-parts.jsx`, `design-canvas.jsx`) — the four explored layouts (A Classic / B Cursor-split ★ shipped / C Studio rail / D AI-first diff). Useful for understanding alternatives; the chosen direction is **B with D's diff-review folded in and the config as a pull-up sheet**.
 - `reference/original-sketch.png` — the original hand-drawn brief.
 
-To run the prototype locally: serve the folder over HTTP (e.g. `npx serve`) and open `AI Video IDE.html` — it must be served, not opened via `file://`, because the `app/*.jsx` files load over HTTP.
+To run the prototype locally: `npm install && npm run dev` — this starts a Vite dev server at `http://localhost:5173` and serves `index.html`. The app must be served over HTTP (not opened via `file://`) because the `app/*.jsx` files are loaded dynamically by Babel standalone.

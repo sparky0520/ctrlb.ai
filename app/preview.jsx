@@ -1,18 +1,18 @@
 // preview.jsx — read-only render surface + transport. Reflects `state` at `time`.
-const { useRef: pvUseRef } = React;
+import { useRef } from 'react';
+import { clamp, fmtTime } from './state.jsx';
 
-function activeItems(state, t) {
+export function activeItems(state, t) {
   return state.items.filter((i) => t >= i.start && t < i.end);
 }
 
-function Preview({ state, time, playing }) {
+export function Preview({ state, time, playing }) {
   const act = activeItems(state, time);
   const zoom = act.find((i) => i.type === "zoom");
   const text = act.find((i) => i.type === "text");
   const color = act.find((i) => i.type === "color");
   const trans = act.find((i) => i.type === "transition");
 
-  // camera transform from active zoom
   let transform = "scale(1)";
   if (zoom) {
     const fx = (zoom.focus[0] - 0.5) * -100 * (zoom.scale - 1) / zoom.scale;
@@ -26,7 +26,6 @@ function Preview({ state, time, playing }) {
         <div className="pv-screen">
           <div className="pv-cam" style={{ transform }}>
             <div className="pv-stripes"/>
-            {/* abstract product-demo placeholder */}
             <div className="pv-mock">
               <div className="mk-side"/>
               <div className="mk-main">
@@ -60,9 +59,9 @@ function Preview({ state, time, playing }) {
   );
 }
 
-function Transport({ state, time, playing, onToggle, onSeek }) {
+export function Transport({ state, time, playing, onToggle, onSeek }) {
   const dur = state.meta.duration;
-  const barRef = pvUseRef(null);
+  const barRef = useRef(null);
   const seekTo = (clientX) => {
     const r = barRef.current.getBoundingClientRect();
     onSeek(clamp((clientX - r.left) / r.width, 0, 1) * dur);
@@ -91,5 +90,3 @@ function Transport({ state, time, playing, onToggle, onSeek }) {
     </div>
   );
 }
-
-Object.assign(window, { Preview, Transport, activeItems });
