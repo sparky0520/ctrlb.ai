@@ -13,7 +13,7 @@ export function activeItems(state, t) {
   return state.items.filter((i) => t >= i.start && t < i.end);
 }
 
-export function Preview({ state, time, playing, onVideoSize }) {
+export function Preview({ state, time, playing, onVideoSize, onVideoDuration }) {
   const act = activeItems(state, time);
   const zoom = act.find((i) => i.type === "zoom");
   const text = act.find((i) => i.type === "text");
@@ -73,7 +73,10 @@ export function Preview({ state, time, playing, onVideoSize }) {
                 src={v.label}
                 playsInline
                 preload="auto"
-                onLoadedMetadata={(e) => onVideoSize?.([e.target.videoWidth, e.target.videoHeight])}
+                onLoadedMetadata={(e) => {
+                  onVideoSize?.([e.target.videoWidth, e.target.videoHeight]);
+                  if (e.target.duration && isFinite(e.target.duration)) onVideoDuration?.(e.target.duration);
+                }}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
               />
             ) : (

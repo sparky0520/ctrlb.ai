@@ -196,6 +196,20 @@ export default function App() {
   };
   const deleteItem = (it) => { setState((s) => ({ ...s, items: s.items.filter((x) => x.id !== it.id) }), { history: true }); setSelId(null); };
 
+  const onVideoDuration = (d) => {
+    setState((s) => {
+      const v = s.items.find((i) => i.type === "video");
+      if (!v) return s;
+      // Only expand — never shrink a user-trimmed clip
+      const currentSpan = (v.trim[1] - v.trim[0]) / v.speed;
+      if (Math.abs(currentSpan - d) < 1) return s; // already reflects source duration
+      const items = s.items.map((i) =>
+        i.id === v.id ? { ...i, end: round(v.start + d / v.speed), trim: [v.trim[0], round(v.trim[0] + d)] } : i
+      );
+      return { ...s, items };
+    });
+  };
+
   const dirty = canUndo || messages.some((m) => m.status === "applied");
 
   return (
@@ -209,7 +223,7 @@ export default function App() {
 
         <div className="col left">
           <div className="left-stage" onClick={() => setSelId(null)}>
-            <Preview state={state} time={time} playing={playing} onVideoSize={setNaturalSize}/>
+            <Preview state={state} time={time} playing={playing} onVideoSize={setNaturalSize} onVideoDuration={onVideoDuration}/>
             <Transport state={state} time={time} playing={playing}
               onToggle={() => setPlaying((p) => !p)} onSeek={(x) => { setTime(x); setPlaying(false); }}
               onAspect={(size) => setState((s) => ({ ...s, meta: { ...s.meta, size } }), { history: true })}

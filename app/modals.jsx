@@ -1,6 +1,6 @@
 // modals.jsx — top bar + Render, Thumbnail generator, and Voiceover modals.
-import { useState, useEffect } from 'react';
-import { fmtTime } from './state.jsx';
+import { useState, useEffect, useRef } from 'react';
+import { fmtTime, buildConfig } from './state.jsx';
 import { Spark } from './chat.jsx';
 
 function Mark({ s = 17 }) {
@@ -43,54 +43,105 @@ function Modal({ children, onClose, wide }) {
 }
 
 // ---- Render -----------------------------------------------------------------
-const RENDER_STAGES = [
-  { k: "Parsing config.json", d: 500 },
-  { k: "Remotion · rendering 1020 frames", d: 1700, frames: true },
-  { k: "FFmpeg · encoding H.264 + AAC", d: 1300 },
-  { k: "Muxing voiceover + music bed", d: 700 },
-];
 export function RenderModal({ state, onClose }) {
   const [stage, setStage] = useState(0);
   const [prog, setProg] = useState(0);
+  const [frame, setFrame] = useState(0);
+  const [totalFrames, setTotalFrames] = useState(Math.round(state.meta.fps * state.meta.duration));
+  const [stages, setStages] = useState(['Parsing config.json', `FFmpeg · encoding ${Math.round(state.meta.fps * state.meta.duration)} frames`]);
   const [done, setDone] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [fileSize, setFileSize] = useState(null);
+  const [error, setError] = useState(null);
+  const vidRef = useRef(null);
+  const [vidPlaying, setVidPlaying] = useState(false);
+
   useEffect(() => {
-    let raf, t0 = performance.now();
-    const total = RENDER_STAGES.reduce((a, b) => a + b.d, 0);
-    const tick = (now) => {
-      const el = now - t0;
-      let acc = 0, cur = 0;
-      for (let i = 0; i < RENDER_STAGES.length; i++) { if (el > acc + RENDER_STAGES[i].d) { acc += RENDER_STAGES[i].d; cur = i + 1; } }
-      setStage(Math.min(cur, RENDER_STAGES.length - 1));
-      setProg(Math.min(1, el / total));
-      if (el >= total) { setDone(true); return; }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    let es = null;
+
+    fetch('/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildConfig(state)),
+    })
+      .then((r) => r.json())
+      .then(({ jobId, totalFrames: tf, stages: sv }) => {
+        if (tf) setTotalFrames(tf);
+        if (sv) setStages(sv);
+        es = new EventSource(`/render/${jobId}/events`);
+        es.onmessage = (e) => {
+          const data = JSON.parse(e.data);
+          if (data.type === 'done') {
+            setDone(true);
+            setDownloadUrl(data.downloadUrl);
+            setPreviewUrl(data.previewUrl);
+            setFileSize(data.fileSize);
+            es.close();
+          } else if (data.type === 'error') {
+            setError(data.message);
+            es.close();
+          } else {
+            setStage(data.stage);
+            setProg(data.progress);
+            setFrame(data.frame);
+            if (data.totalFrames) setTotalFrames(data.totalFrames);
+          }
+        };
+        es.onerror = () => { setError('Connection to render server lost.'); es.close(); };
+      })
+      .catch((err) => setError(err.message));
+
+    return () => es?.close();
   }, []);
-  const frame = Math.round(prog * 1020);
+
+  const togglePlay = () => {
+    const el = vidRef.current;
+    if (!el) return;
+    if (vidPlaying) { el.pause(); setVidPlaying(false); }
+    else { el.play().catch(() => {}); setVidPlaying(true); }
+  };
+
   return (
     <Modal onClose={onClose}>
-      <div className="md-head"><span className="md-title">{done ? "Render complete" : "Rendering ProductDemo.mp4"}</span><button className="md-x" onClick={onClose}>✕</button></div>
-      {!done ? (
+      <div className="md-head"><span className="md-title">{done ? "Render complete" : "Rendering…"}</span><button className="md-x" onClick={onClose}>✕</button></div>
+      {error ? (
         <div className="md-body">
-          <div className="render-prev"><div className="pv-stripes"/><div className="render-spin"/><div className="render-frame">frame {frame} / 1020</div></div>
+          <div className="render-error">{error}</div>
+          <div className="render-actions"><button className="btn ghost" onClick={onClose}>Close</button></div>
+        </div>
+      ) : !done ? (
+        <div className="md-body">
+          <div className="render-prev"><div className="pv-stripes"/><div className="render-spin"/><div className="render-frame">frame {frame} / {totalFrames}</div></div>
           <div className="render-bar"><div className="render-fill" style={{ width: prog * 100 + "%" }}/></div>
           <div className="render-log">
-            {RENDER_STAGES.map((s, i) => (
-              <div key={i} className={"rl " + (i < stage ? "done" : i === stage ? "cur" : "wait")}>
-                <span className="rl-dot"/>{s.k}{s.frames && i === stage ? ` — ${frame}/1020` : ""}
-              </div>
-            ))}
+            {stages.map((name, i) => {
+              const suffix = i === stage && i > 0 ? ` — ${frame}/${totalFrames}` : "";
+              return (
+                <div key={i} className={"rl " + (i < stage ? "done" : i === stage ? "cur" : "wait")}>
+                  <span className="rl-dot"/>{name}{suffix}
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : (
         <div className="md-body">
-          <div className="render-prev done"><div className="pv-stripes"/><div className="pv-text title-card">Ship faster with Acme</div><div className="render-play"><svg width="22" height="22" viewBox="0 0 12 12"><path d="M2.5 1.5 L10 6 L2.5 10.5 Z" fill="#fff"/></svg></div></div>
-          <div className="render-meta">
-            <div><b>ProductDemo.mp4</b><span>1920×1080 · 30fps · {fmtTime(state.meta.duration)} · H.264 · 18.4 MB</span></div>
+          <div className="render-prev done" onClick={togglePlay} style={{ cursor: 'pointer' }}>
+            {previewUrl
+              ? <video ref={vidRef} src={previewUrl} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} onEnded={() => setVidPlaying(false)} playsInline/>
+              : <><div className="pv-stripes"/><div className="pv-text title-card">Ship faster with Acme</div></>
+            }
+            {!vidPlaying && (
+              <div className="render-play">
+                <svg width="22" height="22" viewBox="0 0 12 12"><path d="M2.5 1.5 L10 6 L2.5 10.5 Z" fill="#fff"/></svg>
+              </div>
+            )}
           </div>
-          <div className="render-actions"><button className="btn ghost" onClick={onClose}>Close</button><button className="btn primary">Download .mp4</button></div>
+          <div className="render-meta">
+            <div><b>ProductDemo.mp4</b><span>{state.meta.size[0]}×{state.meta.size[1]} · {state.meta.fps}fps · {fmtTime(state.meta.duration)} · H.264{fileSize ? ` · ${fileSize}` : ''}</span></div>
+          </div>
+          <div className="render-actions"><button className="btn ghost" onClick={onClose}>Close</button><a className="btn primary" href={downloadUrl} download="ProductDemo.mp4">Download .mp4</a></div>
         </div>
       )}
     </Modal>
