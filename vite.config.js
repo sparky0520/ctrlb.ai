@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
       hmr: { host: 'localhost', port: 5173 },
       proxy: {
         '/render': 'http://localhost:3001',
+        '/thumbs': 'http://localhost:3001',
       },
     },
     define: {

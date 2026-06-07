@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { mkdirSync, existsSync, statSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import OpenAI from 'openai';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.join(__dirname, 'output');
@@ -14,6 +15,85 @@ app.use(express.json({ limit: '1mb' }));
 
 // jobId → { totalFrames, stages, outputPath, stage, framesRendered, done, error }
 const jobs = new Map();
+
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+// ── Thumbnail helpers ──────────────────────────────────────────────────────────
+
+function fmtTimeSec(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+// Extract one JPEG frame from srcPath at time t (seconds)
+function extractFrame(srcPath, t, outPath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-ss', t.toFixed(3),
+      '-i', srcPath,
+      '-vframes', '1',
+      '-f', 'image2',
+      '-q:v', '3',
+      '-loglevel', 'error',
+      '-y', outPath,
+    ]);
+    proc.on('close', code => code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}`)));
+  });
+}
+
+// Pick up to 3 interesting composition timecodes from the config
+function pickCandidates(config) {
+  const dur = config.duration ?? 34;
+  const ACCENTS = ['#3d7eff', '#1f8a5b', '#e0a93d'];
+  const POSITIONS = ['bl', 'center', 'br'];
+
+  const textItems = (config.clips ?? []).filter(c => c.type === 'text');
+  const zoomItems = (config.clips ?? []).filter(c => c.type === 'zoom');
+
+  const times = [];
+  for (const t of textItems) times.push(t.at + t.dur * 0.5);
+  for (const z of zoomItems) times.push(z.at + z.dur * 0.5);
+  for (const fb of [dur * 0.25, dur * 0.5, dur * 0.75]) {
+    if (times.length >= 3) break;
+    if (!times.some(t => Math.abs(t - fb) < 2)) times.push(fb);
+  }
+
+  return times.slice(0, 3).map((t, i) => ({
+    compTime: t,
+    frame: fmtTimeSec(t),
+    pos: POSITIONS[i] || 'center',
+    accent: ACCENTS[i] || '#3d7eff',
+  }));
+}
+
+const DEFAULT_CAPS = [
+  "Ship faster\nwith Acme",
+  "We rebuilt\nour workflow",
+  "From 30 min\n→ 30 sec",
+];
+
+async function generateCaptions(config) {
+  if (!openai) return DEFAULT_CAPS;
+  const textVals = (config.clips ?? []).filter(c => c.type === 'text').map(c => c.value).join(', ');
+  try {
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'user',
+        content: `Video titled "${config.composition}", duration ${config.duration}s, text overlays: "${textVals}". ` +
+          `Generate exactly 3 punchy 2-line YouTube thumbnail captions (2-5 words total each, split across 2 lines with \\n). ` +
+          `Return JSON: {"captions": ["line1\\nline2", "line1\\nline2", "line1\\nline2"]}`,
+      }],
+      response_format: { type: 'json_object' },
+      max_tokens: 150,
+      temperature: 0.7,
+    });
+    const data = JSON.parse(resp.choices[0].message.content);
+    const caps = data.captions;
+    if (Array.isArray(caps) && caps.length === 3) return caps;
+  } catch (_) {}
+  return DEFAULT_CAPS;
+}
 
 function fmtBytes(n) {
   if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
@@ -170,6 +250,51 @@ function buildFFmpegArgs(config, outputPath) {
 
   return { args, totalFrames };
 }
+
+// ── POST /thumbs — extract 3 frames + captions ────────────────────────────
+app.post('/thumbs', async (req, res) => {
+  const config = req.body ?? {};
+  const videoClip = (config.clips ?? []).find(c => c.type === 'video');
+  if (!videoClip) return res.status(400).json({ error: 'No video clip in config' });
+
+  const srcPath = path.join(__dirname, 'public', videoClip.src);
+  if (!existsSync(srcPath)) return res.status(400).json({ error: `Source not found: ${videoClip.src}` });
+
+  const [trimIn, trimOut] = videoClip.trim ?? [0, 10];
+  const speed = videoClip.speed ?? 1;
+
+  const [candidates, captions] = await Promise.all([
+    Promise.resolve(pickCandidates(config)),
+    generateCaptions(config),
+  ]);
+
+  const thumbs = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i];
+    // Map composition time to source video time
+    const srcTime = Math.min(Math.max(trimIn + cand.compTime * speed, trimIn), trimOut - 0.1);
+    const filename = `thumb_${randomUUID().slice(0, 8)}.jpg`;
+    const outPath = path.join(OUTPUT_DIR, filename);
+    try {
+      await extractFrame(srcPath, srcTime, outPath);
+      thumbs.push({ ...cand, url: `/thumbs/${filename}`, cap: captions[i] ?? DEFAULT_CAPS[i] });
+    } catch (err) {
+      thumbs.push({ ...cand, url: null, cap: captions[i] ?? DEFAULT_CAPS[i] });
+    }
+  }
+
+  res.json({ thumbs });
+});
+
+// ── GET /thumbs/:filename — serve extracted JPEG ──────────────────────────
+app.get('/thumbs/:filename', (req, res) => {
+  const filename = req.params.filename;
+  if (!filename.endsWith('.jpg')) return res.status(400).end();
+  const p = path.join(OUTPUT_DIR, filename);
+  if (!existsSync(p)) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.sendFile(p);
+});
 
 // ── POST /render ───────────────────────────────────────────────────────────
 app.post('/render', (req, res) => {

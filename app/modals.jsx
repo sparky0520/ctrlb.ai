@@ -1,6 +1,7 @@
 // modals.jsx — top bar + Render, Thumbnail generator, and Voiceover modals.
 import { useState, useEffect, useRef } from 'react';
 import { fmtTime, buildConfig } from './state.jsx';
+
 import { Spark } from './chat.jsx';
 
 function Mark({ s = 17 }) {
@@ -149,30 +150,58 @@ export function RenderModal({ state, onClose }) {
 }
 
 // ---- Thumbnail generator ----------------------------------------------------
-const THUMBS = [
-  { id: 0, cap: "Ship faster\nwith Acme", pos: "bl", accent: "#3d7eff", frame: "00:12" },
-  { id: 1, cap: "We rebuilt\nour workflow", pos: "center", accent: "#1f8a5b", frame: "00:21" },
-  { id: 2, cap: "From 30 min\n→ 30 sec", pos: "br", accent: "#e0a93d", frame: "00:27" },
-];
-export function ThumbModal({ onClose, onPick }) {
+export function ThumbModal({ state, onClose, onPick }) {
   const [sel, setSel] = useState(0);
+  const [thumbs, setThumbs] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch('/thumbs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildConfig(state)),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setThumbs(data.thumbs);
+      })
+      .catch(err => setError(err.message));
+  }, []);
+
   return (
     <Modal onClose={onClose} wide>
       <div className="md-head"><span className="md-title"><Spark s={13}/> Thumbnail generator</span><button className="md-x" onClick={onClose}>✕</button></div>
       <div className="md-sub">Three high-motion frames pulled from the render, captioned automatically.</div>
       <div className="md-body">
-        <div className="thumb-grid">
-          {THUMBS.map((t) => (
-            <button key={t.id} className={"thumb " + (sel === t.id ? "sel" : "")} onClick={() => setSel(t.id)}>
-              <div className="th-img"><div className="pv-stripes"/><div className="th-frame">{t.frame}</div>
-                <div className={"th-cap " + t.pos} style={{ "--ac": t.accent }}>{t.cap.split("\n").map((l, i) => <div key={i}>{l}</div>)}</div>
-              </div>
-              <div className="th-foot">{sel === t.id ? <span className="th-on">✓ selected</span> : "Option " + (t.id + 1)}</div>
-            </button>
-          ))}
-        </div>
+        {error ? (
+          <div className="render-error">{error}</div>
+        ) : !thumbs ? (
+          <div className="thumb-loading"><div className="render-spin"/><span>Extracting frames…</span></div>
+        ) : (
+          <div className="thumb-grid">
+            {thumbs.map((t, idx) => (
+              <button key={idx} className={"thumb " + (sel === idx ? "sel" : "")} onClick={() => setSel(idx)}>
+                <div className="th-img">
+                  {t.url
+                    ? <img src={t.url} alt={`Frame at ${t.frame}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}/>
+                    : <div className="pv-stripes"/>
+                  }
+                  <div className="th-frame">{t.frame}</div>
+                  <div className={"th-cap " + t.pos} style={{ "--ac": t.accent }}>
+                    {t.cap.split("\n").map((l, i) => <div key={i}>{l}</div>)}
+                  </div>
+                </div>
+                <div className="th-foot">{sel === idx ? <span className="th-on">✓ selected</span> : "Option " + (idx + 1)}</div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <div className="render-actions"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={() => onPick(sel)}>Use thumbnail</button></div>
+      <div className="render-actions">
+        <button className="btn ghost" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={!thumbs} onClick={() => onPick(sel)}>Use thumbnail</button>
+      </div>
     </Modal>
   );
 }

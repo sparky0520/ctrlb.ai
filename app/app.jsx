@@ -247,7 +247,7 @@ export default function App() {
       </div>
 
       {modal === "render" && <RenderModal state={state} onClose={() => setModal(null)}/>}
-      {modal === "thumb" && <ThumbModal onClose={() => setModal(null)} onPick={() => setModal(null)}/>}
+      {modal === "thumb" && <ThumbModal state={state} onClose={() => setModal(null)} onPick={() => setModal(null)}/>}
       {modal === "voice" && <VoiceModal state={state} onClose={() => setModal(null)}
         onMatch={() => { setModal(null); onSend("Match the voiceover to the cuts"); }}/>}
 
