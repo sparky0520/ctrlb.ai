@@ -86,6 +86,7 @@ export default function App() {
   const [thinking, setThinking] = useState(false);
   const [modal, setModal] = useState(null);
   const [flash, setFlash] = useState(new Set());
+  const [naturalSize, setNaturalSize] = useState(null);
 
   const rightRef = useRef(null);
   const [maxH, setMaxH] = useState(420);
@@ -208,9 +209,11 @@ export default function App() {
 
         <div className="col left">
           <div className="left-stage" onClick={() => setSelId(null)}>
-            <Preview state={state} time={time} playing={playing}/>
+            <Preview state={state} time={time} playing={playing} onVideoSize={setNaturalSize}/>
             <Transport state={state} time={time} playing={playing}
-              onToggle={() => setPlaying((p) => !p)} onSeek={(x) => { setTime(x); setPlaying(false); }}/>
+              onToggle={() => setPlaying((p) => !p)} onSeek={(x) => { setTime(x); setPlaying(false); }}
+              onAspect={(size) => setState((s) => ({ ...s, meta: { ...s.meta, size } }), { history: true })}
+              naturalSize={naturalSize}/>
           </div>
           <div className="left-tl">
             <Timeline state={state} time={time} dur={dur} selId={selId} zoomPx={28}
