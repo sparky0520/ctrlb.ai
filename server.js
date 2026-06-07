@@ -21,73 +21,146 @@ function fmtBytes(n) {
   return (n / 1e3).toFixed(0) + ' KB';
 }
 
-// ── POST /render ───────────────────────────────────────────────────────────
-app.post('/render', (req, res) => {
-  const config = req.body ?? {};
-  const fps = config.fps ?? 30;
-  const videoClip = (config.clips ?? []).find((c) => c.type === 'video');
+// FFmpeg drawtext needs colons and single-quotes escaped
+function esc(text) {
+  return String(text)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/:/g, '\\:');
+}
 
-  if (!videoClip) return res.status(400).json({ error: 'No video clip in config' });
+// On Windows the gyan.dev FFmpeg build has no fontconfig; fontconfig needs a config file.
+// Work around by supplying a drive-relative path (no colon) which FFmpeg resolves on the current drive.
+const FONT_ARGS = process.platform === 'win32'
+  ? 'fontfile=/Windows/Fonts/arial.ttf:'
+  : '';
 
-  const [trimIn, trimOut] = videoClip.trim ?? [0, 10];
-  const speed = videoClip.speed ?? 1;
+// Build the complete FFmpeg args for the config
+function buildFFmpegArgs(config, outputPath) {
+  const [W, H] = config.size;
+  const fps    = config.fps;
+
+  const videoClip  = config.clips.find(c => c.type === 'video');
+  const zoomClips  = config.clips.filter(c => c.type === 'zoom');
+  const textClips  = config.clips.filter(c => c.type === 'text');
+  const colorClips = config.clips.filter(c => c.type === 'color');
+
+  const [trimIn, trimOut] = videoClip.trim;
+  const speed       = videoClip.speed ?? 1;
+  const vol         = videoClip.volume ?? 1;
   const clipDuration = (trimOut - trimIn) / speed;
-  const totalFrames = Math.round(fps * clipDuration);
+  const totalFrames  = Math.round(fps * clipDuration);
 
-  const jobId = randomUUID();
-  const outputPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
-  const stages = [
-    'Parsing config.json',
-    `FFmpeg · encoding ${totalFrames} frames`,
-  ];
+  // Audio files that physically exist
+  const audioItems = (config.audio ?? []).filter(a => {
+    return existsSync(path.join(__dirname, 'public', a.src));
+  });
 
-  jobs.set(jobId, { config, totalFrames, stages, outputPath, stage: 0, framesRendered: 0, done: false, error: null });
-
-  startRender(jobId, videoClip, fps, trimIn, clipDuration, outputPath);
-
-  res.json({ jobId, totalFrames, stages });
-});
-
-// ── Real FFmpeg render ─────────────────────────────────────────────────────
-async function startRender(jobId, videoClip, fps, trimIn, clipDuration, outputPath) {
-  const job = jobs.get(jobId);
-  if (!job) return;
-
-  // Brief pause for "Parsing config.json" stage
-  await new Promise((r) => setTimeout(r, 500));
-  if (!jobs.has(jobId)) return; // cancelled
-  job.stage = 1;
-
-  const srcPath = path.join(__dirname, 'public', videoClip.src);
-  if (!existsSync(srcPath)) {
-    job.error = `Source file not found: ${videoClip.src}`;
-    return;
-  }
-
-  const speed = videoClip.speed ?? 1;
-  const volume = videoClip.volume ?? 1;
-
-  // Video filter
-  const vf = speed !== 1 ? `setpts=${1 / speed}*PTS` : null;
-
-  // Audio filter — clamp atempo to 0.5–2.0 range (chain if needed)
-  const buildAtempo = (s) => {
-    if (s >= 0.5 && s <= 2) return `atempo=${s}`;
-    if (s > 2) return `atempo=2.0,atempo=${(s / 2).toFixed(3)}`;
-    return `atempo=0.5,atempo=${(s * 2).toFixed(3)}`;
-  };
-  const afParts = [];
-  if (volume !== 1) afParts.push(`volume=${volume}`);
-  if (speed !== 1) afParts.push(buildAtempo(speed));
-
-  const args = [
+  // ── Input args ────────────────────────────────────────────────────────────
+  const inputArgs = [
     '-ss', String(trimIn),
     '-t',  String(clipDuration),
-    '-i',  srcPath,
-    ...(vf ? ['-vf', vf] : []),
-    ...(afParts.length ? ['-af', afParts.join(',')] : []),
+    '-i',  path.join(__dirname, 'public', videoClip.src),
+  ];
+  let nextInputIdx = 1;
+  for (const a of audioItems) {
+    inputArgs.push('-i', path.join(__dirname, 'public', a.src));
+    a._inputIdx = nextInputIdx++;
+  }
+
+  // ── filter_complex ────────────────────────────────────────────────────────
+  const fComplexParts = [];
+  let vLabel = '0:v';
+  let step = 0;
+
+  // 1. Speed + scale to output size
+  const ptsPart = speed !== 1 ? `setpts=${(1 / speed).toFixed(4)}*PTS,` : '';
+  fComplexParts.push(`[${vLabel}]${ptsPart}scale=${W}:${H}[v${step}]`);
+  vLabel = `v${step++}`;
+
+  // 2. Zoom clips — crop the zoomed region then overlay it during the zoom window
+  for (const zoom of zoomClips) {
+    const t0 = zoom.at;
+    const t1 = zoom.at + zoom.dur;
+    const sc = zoom.scale;
+    const [fx, fy] = zoom.focus;
+
+    const cw = Math.round(W / sc);
+    const ch = Math.round(H / sc);
+    const cx = Math.min(Math.round(fx * (W - cw)), W - cw);
+    const cy = Math.min(Math.round(fy * (H - ch)), H - ch);
+
+    fComplexParts.push(`[${vLabel}]split[${vLabel}_b][${vLabel}_zs]`);
+    fComplexParts.push(`[${vLabel}_zs]crop=${cw}:${ch}:${cx}:${cy},scale=${W}:${H}[zo${step}]`);
+    fComplexParts.push(`[${vLabel}_b][zo${step}]overlay=enable='between(t,${t0},${t1})':x=0:y=0[v${step}]`);
+    vLabel = `v${step++}`;
+  }
+
+  // 3. Text overlays
+  for (const t of textClips) {
+    const t0 = t.at;
+    const t1 = t.at + t.dur;
+    const fs  = t.preset === 'title-card' ? Math.round(H * 0.055) : Math.round(H * 0.04);
+    const y   = t.preset === 'title-card' ? `h*0.82` : `(h-text_h)/2`;
+    fComplexParts.push(
+      `[${vLabel}]drawtext=${FONT_ARGS}text='${esc(t.value)}':enable='between(t,${t0},${t1})'` +
+      `:fontsize=${fs}:fontcolor=white:x=(w-text_w)/2:y=${y}:shadowx=2:shadowy=2[v${step}]`
+    );
+    vLabel = `v${step++}`;
+  }
+
+  // 4. Color card overlays (drawbox fills frame; drawtext adds CTA if present)
+  for (const cc of colorClips) {
+    const t0 = cc.at;
+    const t1 = cc.at + cc.dur;
+    fComplexParts.push(
+      `[${vLabel}]drawbox=x=0:y=0:w=iw:h=ih:color=${cc.color}:t=fill:enable='between(t,${t0},${t1})'[v${step}]`
+    );
+    vLabel = `v${step++}`;
+    if (cc.value) {
+      fComplexParts.push(
+        `[${vLabel}]drawtext=${FONT_ARGS}text='${esc(cc.value)}':enable='between(t,${t0},${t1})'` +
+        `:fontsize=${Math.round(H * 0.05)}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2[v${step}]`
+      );
+      vLabel = `v${step++}`;
+    }
+  }
+
+  const vOut = `[${vLabel}]`;
+
+  // 5. Audio mixing — original audio + any additional tracks
+  const aMixInputs = [];
+  fComplexParts.push(`[0:a]volume=${vol}[a_vid]`);
+  aMixInputs.push('[a_vid]');
+
+  for (const a of audioItems) {
+    const delayMs = Math.round(a.at * 1000);
+    fComplexParts.push(
+      `[${a._inputIdx}:a]adelay=${delayMs}|${delayMs},volume=${a.volume}[a_${a._inputIdx}]`
+    );
+    aMixInputs.push(`[a_${a._inputIdx}]`);
+  }
+
+  let aOut;
+  if (aMixInputs.length === 1) {
+    // Rename the single stream to aout
+    fComplexParts[fComplexParts.indexOf('[0:a]volume=' + vol + '[a_vid]')] =
+      `[0:a]volume=${vol}[aout]`;
+    aOut = '[aout]';
+  } else {
+    fComplexParts.push(
+      `${aMixInputs.join('')}amix=inputs=${aMixInputs.length}:duration=first:normalize=0[aout]`
+    );
+    aOut = '[aout]';
+  }
+
+  const args = [
+    ...inputArgs,
+    '-filter_complex', fComplexParts.join(';'),
+    '-map', vOut,
+    '-map', aOut,
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-    '-c:a', 'aac',
+    '-c:a', 'aac', '-ar', '44100',
     '-movflags', '+faststart',
     '-progress', 'pipe:1',
     '-loglevel', 'error',
@@ -95,10 +168,48 @@ async function startRender(jobId, videoClip, fps, trimIn, clipDuration, outputPa
     outputPath,
   ];
 
+  return { args, totalFrames };
+}
+
+// ── POST /render ───────────────────────────────────────────────────────────
+app.post('/render', (req, res) => {
+  const config = req.body ?? {};
+  const videoClip = (config.clips ?? []).find(c => c.type === 'video');
+  if (!videoClip) return res.status(400).json({ error: 'No video clip in config' });
+
+  const [trimIn, trimOut] = videoClip.trim ?? [0, 10];
+  const speed       = videoClip.speed ?? 1;
+  const totalFrames = Math.round((config.fps ?? 30) * (trimOut - trimIn) / speed);
+
+  const jobId      = randomUUID();
+  const outputPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
+  const stages     = ['Parsing config.json', `FFmpeg · encoding ${totalFrames} frames`];
+
+  jobs.set(jobId, { config, totalFrames, stages, outputPath, stage: 0, framesRendered: 0, done: false, error: null });
+  startRender(jobId, config, outputPath);
+
+  res.json({ jobId, totalFrames, stages });
+});
+
+// ── Real FFmpeg render ─────────────────────────────────────────────────────
+async function startRender(jobId, config, outputPath) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  await new Promise(r => setTimeout(r, 500)); // "Parsing" stage
+  if (!jobs.has(jobId)) return;
+  job.stage = 1;
+
+  const videoClip = config.clips.find(c => c.type === 'video');
+  const srcPath   = path.join(__dirname, 'public', videoClip.src);
+  if (!existsSync(srcPath)) { job.error = `Source file not found: ${videoClip.src}`; return; }
+
+  let { args } = buildFFmpegArgs(config, outputPath);
+
   const proc = spawn('ffmpeg', args);
 
   let buf = '';
-  proc.stdout.on('data', (chunk) => {
+  proc.stdout.on('data', chunk => {
     buf += chunk.toString();
     const lines = buf.split('\n');
     buf = lines.pop() ?? '';
@@ -112,20 +223,17 @@ async function startRender(jobId, videoClip, fps, trimIn, clipDuration, outputPa
     }
   });
 
-  proc.stderr.on('data', (chunk) => {
-    // Capture stderr for error reporting
-    const text = chunk.toString();
-    if (text.includes('Error') || text.includes('error')) {
-      job.error = text.trim().split('\n').pop();
-    }
-  });
+  let stderrBuf = '';
+  proc.stderr.on('data', chunk => { stderrBuf += chunk.toString(); });
 
-  proc.on('close', (code) => {
+  proc.on('close', code => {
     if (code === 0) {
       job.done = true;
       job.framesRendered = job.totalFrames;
-    } else if (!job.error) {
-      job.error = `FFmpeg exited with code ${code}`;
+    } else {
+      // Surface the last meaningful ffmpeg error line
+      const errLine = stderrBuf.trim().split('\n').filter(l => l.trim()).pop() ?? `FFmpeg exited ${code}`;
+      job.error = errLine;
     }
   });
 }
@@ -140,7 +248,7 @@ app.get('/render/:jobId/events', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const send = data => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
   const timer = setInterval(() => {
     if (job.error) {
@@ -149,7 +257,6 @@ app.get('/render/:jobId/events', (req, res) => {
       res.end();
       return;
     }
-
     if (job.done) {
       clearInterval(timer);
       let fileSize = null;
@@ -158,7 +265,6 @@ app.get('/render/:jobId/events', (req, res) => {
       res.end();
       return;
     }
-
     const { stage, framesRendered, totalFrames, stages } = job;
     const progress = stage === 0 ? 0.02 : Math.min(0.98, framesRendered / Math.max(1, totalFrames));
     send({ type: 'progress', stage, stageName: stages[stage], frame: framesRendered, totalFrames, progress });
@@ -167,7 +273,7 @@ app.get('/render/:jobId/events', (req, res) => {
   req.on('close', () => clearInterval(timer));
 });
 
-// ── GET /render/:jobId/download — download with attachment header ──────────
+// ── GET /render/:jobId/download ────────────────────────────────────────────
 app.get('/render/:jobId/download', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -177,7 +283,7 @@ app.get('/render/:jobId/download', (req, res) => {
   res.sendFile(job.outputPath);
 });
 
-// ── GET /render/:jobId/preview — inline for <video> playback ─────────────
+// ── GET /render/:jobId/preview — inline for <video> ───────────────────────
 app.get('/render/:jobId/preview', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });

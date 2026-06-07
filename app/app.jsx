@@ -204,7 +204,7 @@ export default function App() {
       const currentSpan = (v.trim[1] - v.trim[0]) / v.speed;
       if (Math.abs(currentSpan - d) < 1) return s; // already reflects source duration
       const items = s.items.map((i) =>
-        i.id === v.id ? { ...i, end: round(v.start + d / v.speed), trim: [v.trim[0], round(v.trim[0] + d)] } : i
+        i.id === v.id ? { ...i, end: round(v.start + d / v.speed), trim: [0, round(d)] } : i
       );
       return { ...s, items };
     });
