@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { validateItems } from './schema.js';
 
 const client = new OpenAI({
   apiKey: import.meta.env.OPENAI_API_KEY,
@@ -54,11 +55,8 @@ export async function callAgent(userText, state) {
 
   if (data.items != null) {
     if (!Array.isArray(data.items)) throw new Error('Model returned non-array items');
-    for (const item of data.items) {
-      if (!item.id || !item.type || typeof item.start !== 'number' || typeof item.end !== 'number') {
-        throw new Error(`Invalid item shape: ${JSON.stringify(item)}`);
-      }
-    }
+    const err = validateItems(data.items);
+    if (err) throw new Error(`Invalid config from model — ${err}`);
   }
 
   return {
