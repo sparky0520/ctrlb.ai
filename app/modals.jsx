@@ -139,9 +139,9 @@ export function RenderModal({ state, onClose }) {
             )}
           </div>
           <div className="render-meta">
-            <div><b>ProductDemo.mp4</b><span>{state.meta.size[0]}×{state.meta.size[1]} · {state.meta.fps}fps · {fmtTime(state.meta.duration)} · H.264{fileSize ? ` · ${fileSize}` : ''}</span></div>
+            <div><b>{state.meta.composition}.mp4</b><span>{state.meta.size[0]}×{state.meta.size[1]} · {state.meta.fps}fps · {fmtTime(totalFrames / state.meta.fps)} · H.264{fileSize ? ` · ${fileSize}` : ''}</span></div>
           </div>
-          <div className="render-actions"><button className="btn ghost" onClick={onClose}>Close</button><a className="btn primary" href={downloadUrl} download="ProductDemo.mp4">Download .mp4</a></div>
+          <div className="render-actions"><button className="btn ghost" onClick={onClose}>Close</button><a className="btn primary" href={downloadUrl} download={`${state.meta.composition}.mp4`}>Download .mp4</a></div>
         </div>
       )}
     </Modal>
